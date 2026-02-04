@@ -1,0 +1,21 @@
+# === RAG 应用专用环境 ===
+# RAG 框架 (LangChain 0.2+)
+langchain==0.2.14
+langchain-community==0.2.12
+langchain-huggingface>=0.0.3  # 新版 Embedding 加载器
+chromadb==0.5.0               # 适配 Pydantic v2
+
+# 模型与计算 (解锁新版 transformers)
+sentence-transformers>=2.7.0
+transformers>=4.39.0
+torch>=2.2.0
+accelerate>=0.28.0
+
+# Web 界面与 API
+gradio==4.35.0
+dashscope>=1.14.0
+pydantic>=2.7.0  # Gradio 4 必需
+
+# 基础兼容性
+numpy<2.0.0      # 【关键】防止与旧模型冲突
+protobuf>=3.20.0,<5.0.0
