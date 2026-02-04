@@ -26,7 +26,7 @@ chroma_db/
 # 切分好的文本块
 processed_texts/
 # 原始文档 (如果你不想公开版权文档，把下面这行前面的 # 去掉)
-# raw_docs/
+raw_docs/
 
 # =========== 6. 系统生成文件 ===========
 .DS_Store
