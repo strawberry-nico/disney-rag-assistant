@@ -1,29 +1,59 @@
-# src/build_vector_db.py
 import os
 import glob
+import torch
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 
-# 1. 配置路径
+# 尝试导入 modelscope，用于云端极速下载
+try:
+    from modelscope.hub.snapshot_download import snapshot_download
+except ImportError:
+    snapshot_download = None
+
+# --- 1. 配置路径与参数 ---
 PERSIST_DIRECTORY = "chroma_db"
 SOURCE_DIRECTORY = "processed_texts"
-MODEL_PATH = "./models/bge-m3"
+LOCAL_MODEL_PATH = "./models/bge-m3"  # 本地路径
+ONLINE_MODEL_ID = "BAAI/bge-m3"       # 线上 ID
 
 def main():
-    print("🧠 正在加载 Embedding 模型...")
+    # --- 2. 硬件与模型自适应加载 ---
+    # 自动检测 GPU
+    use_gpu = torch.cuda.is_available()
+    device = "cuda" if use_gpu else "cpu"
+    print(f"\n" + "="*40)
+    print(f"🖥️  构建设备: {device.upper()}")
+    
+    # 智能选择模型路径
+    model_name_or_path = ONLINE_MODEL_ID # 默认用在线 ID
+    
+    if os.path.exists(LOCAL_MODEL_PATH):
+        print(f"📂 发现本地模型: {LOCAL_MODEL_PATH}")
+        model_name_or_path = LOCAL_MODEL_PATH
+    else:
+        print(f"🌐 本地模型不存在，准备从云端加载: {ONLINE_MODEL_ID}")
+        # 如果在 AutoDL (装了 modelscope)，则使用极速下载
+        if snapshot_download:
+            try:
+                print("🚀 [AutoDL] 正在通过 ModelScope 极速下载...")
+                model_name_or_path = snapshot_download(ONLINE_MODEL_ID)
+                print(f"✅ 下载完成，路径: {model_name_or_path}")
+            except Exception as e:
+                print(f"⚠️ ModelScope 下载异常，尝试直接加载: {e}")
+
+    print(f"🧠 正在加载 Embedding 模型 (Device={device})...")
     try:
         embedding = HuggingFaceEmbeddings(
-            model_name=MODEL_PATH,
-            model_kwargs={"device": "cpu"},
+            model_name=model_name_or_path,
+            model_kwargs={"device": device}, # 👈 关键：这里换成了 GPU
             encode_kwargs={"normalize_embeddings": True}
         )
     except Exception as e:
-        print(f"❌ 模型加载失败，请检查路径: {e}")
+        print(f"❌ 模型加载彻底失败: {e}")
         return
 
-    # 2. 初始化/连接向量库
-    # 注意：这里我们不直接 from_texts，而是先连接库
+    # --- 3. 初始化/连接向量库 (保留你优秀的增量逻辑) ---
     if os.path.exists(PERSIST_DIRECTORY):
         print("💾 检测到已有数据库，正在连接...")
         vectorstore = Chroma(
@@ -33,7 +63,6 @@ def main():
         # 获取库里已有的来源文件列表
         try:
             existing_data = vectorstore.get()
-            # 从 metadata 中提取 source 字段，去重
             existing_sources = set()
             if existing_data and 'metadatas' in existing_data:
                 for meta in existing_data['metadatas']:
@@ -50,13 +79,16 @@ def main():
         )
         existing_sources = set()
 
-    # 3. 扫描本地文件并过滤
+    # --- 4. 扫描并过滤新文件 ---
+    if not os.path.exists(SOURCE_DIRECTORY):
+        print(f"❌ 错误: 找不到 {SOURCE_DIRECTORY} 文件夹！请先上传数据。")
+        return
+
     all_files = glob.glob(os.path.join(SOURCE_DIRECTORY, "*.txt"))
     new_files = []
     
     for file_path in all_files:
         file_name = os.path.basename(file_path)
-        # 核心逻辑：如果文件名不在库里，才处理
         if file_name not in existing_sources:
             new_files.append(file_path)
     
@@ -64,9 +96,9 @@ def main():
         print("✅ 没有新文件需要处理，数据库已是最新状态！")
         return
 
-    print(f"📦 发现 {len(new_files)} 个新文件，准备入库...")
+    print(f"📦 发现 {len(new_files)} 个新文件，准备处理...")
 
-    # 4. 加载并切分新文件
+    # --- 5. 加载与切分 ---
     texts = []
     metadatas = []
     
@@ -74,6 +106,7 @@ def main():
         try:
             with open(file, encoding="utf-8") as f:
                 content = f.read()
+            if not content.strip(): continue # 跳过空文件
             texts.append(content)
             metadatas.append({"source": os.path.basename(file)})
         except Exception as e:
@@ -92,19 +125,16 @@ def main():
     for i, text in enumerate(texts):
         splits = splitter.split_text(text)
         new_chunks.extend(splits)
-        # 为每个切片复制对应的 metadata
         new_metadatas.extend([metadatas[i]] * len(splits))
 
-    # 5. 增量添加到数据库
+    # --- 6. 写入数据库 ---
     if new_chunks:
-        print(f"✂️  生成了 {len(new_chunks)} 个新切片，正在写入向量库...")
-        # 关键方法：add_texts (追加) 而不是 from_texts (覆盖)
+        print(f"✂️  生成了 {len(new_chunks)} 个切片，正在写入向量库...")
         vectorstore.add_texts(texts=new_chunks, metadatas=new_metadatas)
-        # Chroma 现在的版本通常会自动 persist，但为了保险可以显式调用（虽然新版可能弃用了）
-        # vectorstore.persist() 
         print(f"🎉 成功添加 {len(new_files)} 个文件到数据库！")
+        print("="*40 + "\n")
     else:
-        print("⚠️ 文件内容为空或切分失败。")
+        print("⚠️ 有文件但没切分出内容，请检查文件格式。")
 
 if __name__ == "__main__":
     main()

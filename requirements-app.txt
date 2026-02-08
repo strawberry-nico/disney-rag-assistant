@@ -1,21 +1,23 @@
-# === RAG 应用专用环境 ===
-# RAG 框架 (LangChain 0.2+)
+# === 核心依赖 (已解决版本冲突) ===
+# 1. 基础框架
 langchain==0.2.14
 langchain-community==0.2.12
-langchain-huggingface>=0.0.3  # 新版 Embedding 加载器
-chromadb==0.5.0               # 适配 Pydantic v2
+langchain-huggingface>=0.0.3
+chromadb==0.5.0
 
-# 模型与计算 (解锁新版 transformers)
-sentence-transformers>=2.7.0
-transformers>=4.39.0
-torch>=2.2.0
-accelerate>=0.28.0
-
-# Web 界面与 API
+# 2. 关键：锁定版本以兼容 Gradio 和 Rerank
+transformers==4.42.4
+huggingface_hub==0.24.7
 gradio==4.35.0
-dashscope>=1.14.0
-pydantic>=2.7.0  # Gradio 4 必需
+accelerate>=0.26.0
 
-# 基础兼容性
-numpy<2.0.0      # 【关键】防止与旧模型冲突
+# 3. 模型支持
+torch>=2.2.0
+sentence-transformers>=2.7.0
+modelscope>=1.14.0
+
+# 4. 其他
+dashscope>=1.14.0
+pydantic>=2.7.0
+numpy<2.0.0
 protobuf>=3.20.0,<5.0.0
